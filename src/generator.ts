@@ -321,7 +321,7 @@ BASIC_AUTH_PASSWORD=your-password-here
   }
 
   return `# x402 Configuration
-FACILITATOR_URL=${config.facilitatorUrl || "https://facilitator.x402.org"}
+FACILITATOR_URL=${config.facilitatorUrl || "https://facilitator.payai.network"}
 ADDRESS=${config.sellerAddress}
 NETWORK=${config.network}
 
@@ -347,9 +347,9 @@ This is an x402 proxy server that adds payment functionality to your API endpoin
 
 - Node.js v20+ (install via [nvm](https://github.com/nvm-sh/nvm))
 - pnpm v10 (install via [pnpm.io/installation](https://pnpm.io/installation))
-- A valid Ethereum address for receiving payments
-- Coinbase Developer Platform API Key & Secret (if accepting payments on Base mainnet)
-  - Get them here [https://portal.cdp.coinbase.com/projects](https://portal.cdp.coinbase.com/projects)
+- A valid blockchain address for receiving payments (Ethereum or Solana, depending on network)
+${config.network === "base" || config.network === "base-mainnet" ? `- Coinbase Developer Platform API Key & Secret (required for Base mainnet)
+  - Get them here [https://portal.cdp.coinbase.com/projects](https://portal.cdp.coinbase.com/projects)` : ""}
 
 ## Setup
 
@@ -389,9 +389,9 @@ ${config.routes.length > 0
 
 ## Environment Variables
 
-- \`FACILITATOR_URL\` - The x402 facilitator URL
-- \`ADDRESS\` - Your Ethereum address for receiving payments
-- \`NETWORK\` - The blockchain network (base, ethereum, solana, etc.)
+- \`FACILITATOR_URL\` - The x402 facilitator URL (default: \`https://facilitator.payai.network\`)
+- \`ADDRESS\` - Your blockchain address for receiving payments (Ethereum or Solana, depending on network)
+- \`NETWORK\` - The blockchain network (default: \`solana-devnet\`)
 - \`API_BASE_URL\` - The base URL of the original API to proxy
 - \`PORT\` - The port to run the server on (default: 4021)
 

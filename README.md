@@ -54,8 +54,8 @@ The CLI will guide you through:
 4. **Default Price** - Default price for all routes (e.g., `$0.001`)
 5. **Routes** - Configure routes with wildcard support (e.g., `/api/*`, `/users/:id`)
 6. **Seller Address** - Your Ethereum or Solana address for receiving payments
-7. **Network** - Blockchain network (base, ethereum, solana, etc.)
-8. **Facilitator URL** - x402 facilitator URL (default: `https://facilitator.x402.org`)
+7. **Network** - Blockchain network (default: `solana-devnet`)
+8. **Facilitator URL** - x402 facilitator URL (default: `https://facilitator.payai.network`)
 9. **Authentication** - Optional authentication (API Key, Bearer Token, or Basic Auth)
 
 ## Generated Project Structure
@@ -91,8 +91,8 @@ $ to402 create
 ? Add another route? No
 
 ? Seller address (Ethereum or Solana): 0x1234...
-? Blockchain network: base
-? Facilitator URL: https://facilitator.x402.org
+? Blockchain network: solana-devnet
+? Facilitator URL: https://facilitator.payai.network
 ? Add authentication? Yes
 ? Select authentication type: API Key (Header)
 ? Header name (e.g., X-API-Key): X-API-Key

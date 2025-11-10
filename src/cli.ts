@@ -11,7 +11,7 @@ import path from "path";
 import { generateProject } from "./generator.js";
 import { ProjectConfig, AuthConfig, RouteConfig } from "./types.js";
 
-const networks = ["base", "ethereum", "solana", "polygon", "arbitrum", "optimism"];
+const networks = ["solana-devnet", "base", "ethereum", "solana", "polygon", "arbitrum", "optimism"];
 
 /**
  * Validates if a string is a valid URL
@@ -231,7 +231,7 @@ async function runInteractiveSetup(): Promise<void> {
       name: "network",
       message: "Blockchain network:",
       choices: networks,
-      default: "base",
+      default: "solana-devnet",
     },
   ]);
 
@@ -241,7 +241,7 @@ async function runInteractiveSetup(): Promise<void> {
       type: "input",
       name: "facilitatorUrl",
       message: "Facilitator URL:",
-      default: "https://facilitator.x402.org",
+      default: "https://facilitator.payai.network",
       validate: (input: string) => {
         if (!input.trim()) {
           return "Facilitator URL cannot be empty";
