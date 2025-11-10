@@ -1,6 +1,6 @@
 # to402 CLI
 
-A developer-friendly CLI tool to scaffold an x402 proxy server from an OpenAPI specification. Easily turn any API into an x402 API with payment functionality.
+A developer-friendly CLI tool to scaffold an x402 proxy server. Easily turn any API into an x402 API with payment functionality.
 
 ## Installation
 
@@ -39,9 +39,9 @@ to402 create
 ## Features
 
 - 🚀 **Interactive Setup**: Step-by-step prompts for easy configuration
-- 📋 **OpenAPI Support**: Works with local files or remote URLs
-- 💰 **Flexible Pricing**: Set default prices or configure per-endpoint pricing
-- 🔗 **Automatic Proxy**: Generates proxy routes for all API endpoints
+- 💰 **Flexible Pricing**: Set default prices and configure per-route pricing
+- 🔗 **Wildcard Routes**: Support for wildcard paths (e.g., `/api/*`)
+- 🔐 **Authentication**: Support for API Key, Bearer Token, and Basic Auth
 - ⚡ **Developer Friendly**: Clear prompts, validation, and helpful defaults
 
 ## Workflow
@@ -50,13 +50,13 @@ The CLI will guide you through:
 
 1. **Project Name** - Name for your x402 server project (default: `to402-server`)
 2. **Description** - Project description
-3. **OpenAPI Schema** - Path or URL to your OpenAPI specification
-4. **Base URL** - API base URL (extracted from OpenAPI or manually entered)
-5. **Default Price** - Default price for all endpoints (e.g., `$0.001`)
-6. **Per-Endpoint Pricing** - Optional individual pricing for each endpoint
-7. **Seller Address** - Your Ethereum or Solana address for receiving payments
-8. **Network** - Blockchain network (base, ethereum, solana, etc.)
-9. **Facilitator URL** - x402 facilitator URL (default: `https://facilitator.x402.org`)
+3. **Base URL** - API base URL to proxy
+4. **Default Price** - Default price for all routes (e.g., `$0.001`)
+5. **Routes** - Configure routes with wildcard support (e.g., `/api/*`, `/users/:id`)
+6. **Seller Address** - Your Ethereum or Solana address for receiving payments
+7. **Network** - Blockchain network (base, ethereum, solana, etc.)
+8. **Facilitator URL** - x402 facilitator URL (default: `https://facilitator.x402.org`)
+9. **Authentication** - Optional authentication (API Key, Bearer Token, or Basic Auth)
 
 ## Generated Project Structure
 
@@ -67,8 +67,7 @@ your-project/
 ├── package.json          # Dependencies and scripts
 ├── tsconfig.json         # TypeScript configuration
 ├── .env.example          # Environment variables template
-├── README.md             # Generated documentation
-└── openapi.json          # OpenAPI spec (if downloaded from URL)
+└── README.md             # Generated documentation
 ```
 
 ## Example
@@ -80,15 +79,24 @@ $ to402 create
 
 ? Project name: my-api-proxy
 ? Project description: Proxy server for my API
-? OpenAPI schema path or URL: https://api.example.com/openapi.json
-📥 Loading OpenAPI specification...
-✓ Loaded 15 API paths
-? Use base URL from OpenAPI spec: https://api.example.com? Yes
-? Default price for all endpoints (e.g., $0.001): $0.001
-? Configure individual prices for 15 endpoints? No
+? API base URL to proxy: https://api.example.com
+? Default price for all routes (e.g., $0.001): $0.001
+
+💰 Configure routes and pricing
+? Route path (use * for wildcard, e.g., /api/* or /users/:id): /api/*
+? Price for /api/*: $0.001
+? Add another route? Yes
+? Route path: /users/:id
+? Price for /users/:id: $0.01
+? Add another route? No
+
 ? Seller address (Ethereum or Solana): 0x1234...
 ? Blockchain network: base
 ? Facilitator URL: https://facilitator.x402.org
+? Add authentication? Yes
+? Select authentication type: API Key (Header)
+? Header name (e.g., X-API-Key): X-API-Key
+? API Key: your-api-key-here
 
 🔨 Generating project...
 ✓ Project generated successfully in ./my-api-proxy

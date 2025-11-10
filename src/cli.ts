@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * to402 CLI - Scaffold an x402 proxy server from an OpenAPI specification
+ * to402 CLI - Scaffold an x402 proxy server
  */
 
 import { program } from "commander";
@@ -8,9 +8,8 @@ import inquirer from "inquirer";
 import chalk from "chalk";
 import fs from "fs-extra";
 import path from "path";
-import { loadOpenApiSpec, parseOpenApiSpec } from "./openapi.js";
 import { generateProject } from "./generator.js";
-import { ProjectConfig, OpenApiPath, AuthConfig } from "./types.js";
+import { ProjectConfig, AuthConfig, RouteConfig } from "./types.js";
 
 const networks = ["base", "ethereum", "solana", "polygon", "arbitrum", "optimism"];
 
@@ -62,7 +61,7 @@ function normalizePrice(price: string): string {
 function main() {
   program
     .name("to402")
-    .description("Scaffold an x402 proxy server from an OpenAPI specification")
+    .description("Scaffold an x402 proxy server")
     .version("0.1.0");
 
   program
@@ -119,110 +118,30 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
-  // Step 3: OpenAPI schema path or URL
-  const { openApiPath } = await inquirer.prompt([
+  // Step 3: Base URL
+  const { baseUrl } = await inquirer.prompt([
     {
       type: "input",
-      name: "openApiPath",
-      message: "OpenAPI schema path or URL:",
-      validate: async (input: string) => {
+      name: "baseUrl",
+      message: "API base URL to proxy:",
+      validate: (input: string) => {
         if (!input.trim()) {
-          return "OpenAPI schema path or URL is required";
+          return "Base URL cannot be empty";
         }
-        // If it's a URL, validate URL format
-        if (input.startsWith("http://") || input.startsWith("https://")) {
-          if (!isValidUrl(input)) {
-            return "Invalid URL format";
-          }
-          return true;
-        }
-        // If it's a local path, check if file exists
-        if (!(await fs.pathExists(input))) {
-          return `File not found: ${input}`;
+        if (!isValidUrl(input)) {
+          return "Invalid URL format";
         }
         return true;
       },
     },
   ]);
 
-  // Step 4: Load and parse OpenAPI spec
-  console.log(chalk.blue("\n📥 Loading OpenAPI specification..."));
-  const projectDir = path.join(process.cwd(), projectName);
-  await fs.ensureDir(projectDir);
-
-  let openApiFilePath: string;
-  try {
-    openApiFilePath = await loadOpenApiSpec(openApiPath, projectDir);
-  } catch (error) {
-    throw new Error(`Failed to load OpenAPI spec: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  let parsedOpenApi;
-  try {
-    parsedOpenApi = await parseOpenApiSpec(openApiFilePath);
-  } catch (error) {
-    throw new Error(`Failed to parse OpenAPI spec: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  console.log(chalk.green(`✓ Loaded ${parsedOpenApi.paths.length} API paths`));
-
-  // Step 5: Base URL
-  let baseUrl = parsedOpenApi.baseUrl;
-  if (baseUrl) {
-    const { useDefaultBaseUrl } = await inquirer.prompt([
-      {
-        type: "confirm",
-        name: "useDefaultBaseUrl",
-        message: `Use base URL from OpenAPI spec: ${chalk.cyan(baseUrl)}?`,
-        default: true,
-      },
-    ]);
-
-    if (!useDefaultBaseUrl) {
-      const { customBaseUrl } = await inquirer.prompt([
-        {
-          type: "input",
-          name: "customBaseUrl",
-          message: "Enter base URL:",
-          validate: (input: string) => {
-            if (!input.trim()) {
-              return "Base URL cannot be empty";
-            }
-            if (!isValidUrl(input)) {
-              return "Invalid URL format";
-            }
-            return true;
-          },
-        },
-      ]);
-      baseUrl = customBaseUrl.trim();
-    }
-  } else {
-    const { customBaseUrl } = await inquirer.prompt([
-      {
-        type: "input",
-        name: "customBaseUrl",
-        message: "Enter base URL (not found in OpenAPI spec):",
-        validate: (input: string) => {
-          if (!input.trim()) {
-            return "Base URL cannot be empty";
-          }
-          if (!isValidUrl(input)) {
-            return "Invalid URL format";
-          }
-          return true;
-        },
-      },
-    ]);
-    baseUrl = customBaseUrl.trim();
-  }
-
-  // Step 6: Default price
+  // Step 4: Default price
   const { defaultPrice } = await inquirer.prompt([
     {
       type: "input",
       name: "defaultPrice",
-      message: "Default price for all endpoints (e.g., $0.001):",
+      message: "Default price for all routes (e.g., $0.001):",
       default: "$0.001",
       validate: (input: string) => {
         if (!isValidPrice(input)) {
@@ -233,43 +152,61 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
-  // Step 7: Per-endpoint pricing
-  console.log(chalk.blue("\n💰 Configure endpoint pricing"));
-  const endpointPrices: Record<string, string> = {};
+  // Step 5: Routes configuration
+  console.log(chalk.blue("\n💰 Configure routes and pricing"));
+  const routes: RouteConfig[] = [];
+  let addMoreRoutes = true;
 
-  if (parsedOpenApi.paths.length > 0) {
-    const { configurePerEndpoint } = await inquirer.prompt([
+  while (addMoreRoutes) {
+    const { routePath } = await inquirer.prompt([
       {
-        type: "confirm",
-        name: "configurePerEndpoint",
-        message: `Configure individual prices for ${parsedOpenApi.paths.length} endpoints?`,
-        default: false,
+        type: "input",
+        name: "routePath",
+        message: "Route path (use * for wildcard, e.g., /api/* or /users/:id):",
+        validate: (input: string) => {
+          if (!input.trim()) {
+            return "Route path cannot be empty";
+          }
+          if (!input.startsWith("/")) {
+            return "Route path must start with /";
+          }
+          return true;
+        },
       },
     ]);
 
-    if (configurePerEndpoint) {
-      for (const apiPath of parsedOpenApi.paths) {
-        const pathDisplay = `${apiPath.methods.join(", ")} ${apiPath.path}${apiPath.summary ? ` - ${apiPath.summary}` : ""}`;
-        const { price } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "price",
-            message: `Price for ${chalk.cyan(pathDisplay)}:`,
-            default: defaultPrice,
-            validate: (input: string) => {
-              if (!isValidPrice(input)) {
-                return "Invalid price format. Use format like $0.001 or 0.001";
-              }
-              return true;
-            },
-          },
-        ]);
-        endpointPrices[apiPath.path] = normalizePrice(price);
-      }
-    }
+    const { routePrice } = await inquirer.prompt([
+      {
+        type: "input",
+        name: "routePrice",
+        message: `Price for ${chalk.cyan(routePath)}:`,
+        default: defaultPrice,
+        validate: (input: string) => {
+          if (!isValidPrice(input)) {
+            return "Invalid price format. Use format like $0.001 or 0.001";
+          }
+          return true;
+        },
+      },
+    ]);
+
+    routes.push({
+      path: routePath.trim(),
+      price: normalizePrice(routePrice),
+    });
+
+    const { addMore } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "addMore",
+        message: "Add another route?",
+        default: true,
+      },
+    ]);
+    addMoreRoutes = addMore;
   }
 
-  // Step 8: Seller address
+  // Step 6: Seller address
   const { sellerAddress } = await inquirer.prompt([
     {
       type: "input",
@@ -287,7 +224,7 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
-  // Step 9: Network
+  // Step 7: Network
   const { network } = await inquirer.prompt([
     {
       type: "list",
@@ -298,7 +235,7 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
-  // Step 10: Facilitator URL
+  // Step 8: Facilitator URL
   const { facilitatorUrl } = await inquirer.prompt([
     {
       type: "input",
@@ -317,254 +254,146 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
-  // Step 11: Authentication
+  // Step 9: Authentication
+  const { addAuth } = await inquirer.prompt([
+    {
+      type: "confirm",
+      name: "addAuth",
+      message: "Add authentication?",
+      default: false,
+    },
+  ]);
+
   let authConfig: AuthConfig | undefined;
-  
-  if (parsedOpenApi.securitySchemes.length > 0) {
-    console.log(chalk.blue("\n🔐 Authentication detected in OpenAPI spec"));
-    
-    // If multiple schemes, let user choose which one to use
-    let selectedScheme;
-    if (parsedOpenApi.securitySchemes.length === 1) {
-      selectedScheme = parsedOpenApi.securitySchemes[0];
-      console.log(chalk.cyan(`Using: ${selectedScheme.name} (${selectedScheme.type})`));
-    } else {
-      const { schemeName } = await inquirer.prompt([
-        {
-          type: "list",
-          name: "schemeName",
-          message: "Select authentication method:",
-          choices: parsedOpenApi.securitySchemes.map(s => ({
-            name: `${s.name} (${s.type}${s.scheme ? ` - ${s.scheme}` : ""})`,
-            value: s.name,
-          })),
-        },
-      ]);
-      selectedScheme = parsedOpenApi.securitySchemes.find(s => s.name === schemeName);
-    }
-
-    if (selectedScheme) {
-      if (selectedScheme.type === "apiKey") {
-        const promptMessage = selectedScheme.in === "header"
-          ? `API Key for ${selectedScheme.headerName || "header"}:`
-          : selectedScheme.in === "query"
-          ? `API Key for query parameter ${selectedScheme.queryName || "query"}:`
-          : `API Key for cookie ${selectedScheme.cookieName || "cookie"}:`;
-        
-        const { apiKey } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "apiKey",
-            message: promptMessage,
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "API Key cannot be empty";
-              }
-              return true;
-            },
-          },
-        ]);
-
-        authConfig = {
-          type: "apiKey",
-          value: apiKey.trim(),
-          headerName: selectedScheme.headerName,
-          queryName: selectedScheme.queryName,
-          cookieName: selectedScheme.cookieName,
-        };
-      } else if (selectedScheme.type === "http" && selectedScheme.scheme === "bearer") {
-        const { bearerToken } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "bearerToken",
-            message: "Bearer Token:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Bearer Token cannot be empty";
-              }
-              return true;
-            },
-          },
-        ]);
-
-        authConfig = {
-          type: "bearer",
-          value: bearerToken.trim(),
-        };
-      } else if (selectedScheme.type === "http" && selectedScheme.scheme === "basic") {
-        const { username, password } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "username",
-            message: "Username:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Username cannot be empty";
-              }
-              return true;
-            },
-          },
-          {
-            type: "password",
-            name: "password",
-            message: "Password:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Password cannot be empty";
-              }
-              return true;
-            },
-          },
-        ]);
-
-        authConfig = {
-          type: "basic",
-          username: username.trim(),
-          password: password.trim(),
-        };
-      }
-    }
-  } else {
-    // No auth in spec, ask if user wants to add custom
-    const { addCustomAuth } = await inquirer.prompt([
+  if (addAuth) {
+    const { authType } = await inquirer.prompt([
       {
-        type: "confirm",
-        name: "addCustomAuth",
-        message: "No authentication found in OpenAPI spec. Add custom authentication?",
-        default: false,
+        type: "list",
+        name: "authType",
+        message: "Select authentication type:",
+        choices: [
+          { name: "API Key (Header)", value: "apiKeyHeader" },
+          { name: "API Key (Query Parameter)", value: "apiKeyQuery" },
+          { name: "Bearer Token", value: "bearer" },
+          { name: "Basic Auth", value: "basic" },
+        ],
       },
     ]);
 
-    if (addCustomAuth) {
-      const { authType } = await inquirer.prompt([
+    if (authType === "apiKeyHeader") {
+      const { headerName, apiKey } = await inquirer.prompt([
         {
-          type: "list",
-          name: "authType",
-          message: "Select authentication type:",
-          choices: [
-            { name: "API Key (Header)", value: "apiKeyHeader" },
-            { name: "API Key (Query Parameter)", value: "apiKeyQuery" },
-            { name: "Bearer Token", value: "bearer" },
-            { name: "Basic Auth", value: "basic" },
-          ],
+          type: "input",
+          name: "headerName",
+          message: "Header name (e.g., X-API-Key):",
+          default: "X-API-Key",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "Header name cannot be empty";
+            }
+            return true;
+          },
+        },
+        {
+          type: "input",
+          name: "apiKey",
+          message: "API Key:",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "API Key cannot be empty";
+            }
+            return true;
+          },
         },
       ]);
 
-      if (authType === "apiKeyHeader") {
-        const { headerName, apiKey } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "headerName",
-            message: "Header name (e.g., X-API-Key):",
-            default: "X-API-Key",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Header name cannot be empty";
-              }
-              return true;
-            },
+      authConfig = {
+        type: "apiKey",
+        value: apiKey.trim(),
+        headerName: headerName.trim(),
+      };
+    } else if (authType === "apiKeyQuery") {
+      const { queryName, apiKey } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "queryName",
+          message: "Query parameter name (e.g., api_key):",
+          default: "api_key",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "Query parameter name cannot be empty";
+            }
+            return true;
           },
-          {
-            type: "input",
-            name: "apiKey",
-            message: "API Key:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "API Key cannot be empty";
-              }
-              return true;
-            },
+        },
+        {
+          type: "input",
+          name: "apiKey",
+          message: "API Key:",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "API Key cannot be empty";
+            }
+            return true;
           },
-        ]);
+        },
+      ]);
 
-        authConfig = {
-          type: "apiKey",
-          value: apiKey.trim(),
-          headerName: headerName.trim(),
-        };
-      } else if (authType === "apiKeyQuery") {
-        const { queryName, apiKey } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "queryName",
-            message: "Query parameter name (e.g., api_key):",
-            default: "api_key",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Query parameter name cannot be empty";
-              }
-              return true;
-            },
+      authConfig = {
+        type: "apiKey",
+        value: apiKey.trim(),
+        queryName: queryName.trim(),
+      };
+    } else if (authType === "bearer") {
+      const { bearerToken } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "bearerToken",
+          message: "Bearer Token:",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "Bearer Token cannot be empty";
+            }
+            return true;
           },
-          {
-            type: "input",
-            name: "apiKey",
-            message: "API Key:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "API Key cannot be empty";
-              }
-              return true;
-            },
-          },
-        ]);
+        },
+      ]);
 
-        authConfig = {
-          type: "apiKey",
-          value: apiKey.trim(),
-          queryName: queryName.trim(),
-        };
-      } else if (authType === "bearer") {
-        const { bearerToken } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "bearerToken",
-            message: "Bearer Token:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Bearer Token cannot be empty";
-              }
-              return true;
-            },
+      authConfig = {
+        type: "bearer",
+        value: bearerToken.trim(),
+      };
+    } else if (authType === "basic") {
+      const { username, password } = await inquirer.prompt([
+        {
+          type: "input",
+          name: "username",
+          message: "Username:",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "Username cannot be empty";
+            }
+            return true;
           },
-        ]);
+        },
+        {
+          type: "password",
+          name: "password",
+          message: "Password:",
+          validate: (input: string) => {
+            if (!input.trim()) {
+              return "Password cannot be empty";
+            }
+            return true;
+          },
+        },
+      ]);
 
-        authConfig = {
-          type: "bearer",
-          value: bearerToken.trim(),
-        };
-      } else if (authType === "basic") {
-        const { username, password } = await inquirer.prompt([
-          {
-            type: "input",
-            name: "username",
-            message: "Username:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Username cannot be empty";
-              }
-              return true;
-            },
-          },
-          {
-            type: "password",
-            name: "password",
-            message: "Password:",
-            validate: (input: string) => {
-              if (!input.trim()) {
-                return "Password cannot be empty";
-              }
-              return true;
-            },
-          },
-        ]);
-
-        authConfig = {
-          type: "basic",
-          username: username.trim(),
-          password: password.trim(),
-        };
-      }
+      authConfig = {
+        type: "basic",
+        username: username.trim(),
+        password: password.trim(),
+      };
     }
   }
 
@@ -572,19 +401,21 @@ async function runInteractiveSetup(): Promise<void> {
   const config: ProjectConfig = {
     projectName,
     description,
-    openApiPath: openApiPath,
-    baseUrl,
+    baseUrl: baseUrl.trim(),
     defaultPrice: normalizePrice(defaultPrice),
     sellerAddress: sellerAddress.trim(),
     network,
     facilitatorUrl: facilitatorUrl.trim(),
-    endpointPrices,
+    routes,
     auth: authConfig,
   };
 
   // Generate project
+  const projectDir = path.join(process.cwd(), projectName);
+  await fs.ensureDir(projectDir);
+  
   console.log(chalk.blue("\n🔨 Generating project..."));
-  await generateProject(config, parsedOpenApi.paths, projectDir, openApiFilePath);
+  await generateProject(config, projectDir);
 
   console.log(chalk.green.bold("\n✅ Project created successfully!"));
   console.log(chalk.cyan(`\n📁 Project location: ${path.resolve(projectDir)}`));

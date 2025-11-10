@@ -4,27 +4,8 @@
 
 import fs from "fs-extra";
 import path from "path";
-import { ProjectConfig, OpenApiPath, AuthConfig } from "./types.js";
+import { ProjectConfig, AuthConfig, RouteConfig } from "./types.js";
 import chalk from "chalk";
-
-function convertPathToHono(pathTemplate: string): {
-  honoPath: string;
-  hasParams: boolean;
-} {
-  const hasParams = /\{[^}]+\}/.test(pathTemplate);
-  if (!hasParams) {
-    return {
-      honoPath: pathTemplate,
-      hasParams: false,
-    };
-  }
-
-  const honoPath = pathTemplate.replace(/\{([^}]+)\}/g, (_match, paramName) => `:${paramName}`);
-  return {
-    honoPath,
-    hasParams: true,
-  };
-}
 
 /**
  * Generates authentication configuration code
@@ -105,31 +86,83 @@ function generateAuthCode(auth: AuthConfig): string {
 /**
  * Generates the main server file
  */
-function generateServerFile(config: ProjectConfig, paths: OpenApiPath[]): string {
-  const normalizedPaths = paths.map(apiPath => {
-    const price = config.endpointPrices[apiPath.path] || config.defaultPrice;
-    const { honoPath, hasParams } = convertPathToHono(apiPath.path);
-
-    return {
-      ...apiPath,
-      honoPath,
-      hasParams,
-      price,
-    };
-  });
-
+function generateServerFile(config: ProjectConfig): string {
   // Format payment config as JavaScript object
-  if (normalizedPaths.length === 0) {
-    throw new Error("No API paths found in OpenAPI spec");
+  if (config.routes.length === 0) {
+    throw new Error("At least one route is required");
   }
 
-  const paymentConfigEntries = normalizedPaths
-    .map(apiPath => {
-      return `    "${apiPath.honoPath}": {\n      price: "${apiPath.price}",\n      network,\n    }`;
+  const paymentConfigEntries = config.routes
+    .map(route => {
+      return `    "${route.path}": {\n      price: "${route.price}",\n      network,\n    }`;
     })
     .join(",\n");
 
   const paymentConfigStr = `{\n${paymentConfigEntries}\n  }`;
+
+  // Generate proxy routes for each configured route
+  const proxyRoutes = config.routes
+    .map(route => {
+      // Hono uses /* for wildcard routes
+      const routePath = route.path;
+      
+      return `// Proxy route: ${route.path}
+app.all("${routePath}", async (c) => {
+  const requestId = crypto.randomUUID();
+  const startTime = Date.now();
+  
+  try {
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Incoming request: \${c.req.method} \${c.req.path}\`);
+    
+    const baseUrl = new URL(apiBaseUrl);
+    const path = c.req.path;
+    const url = new URL(path, baseUrl);
+
+    // Forward query parameters
+    const searchParams = new URL(c.req.url).searchParams;
+    searchParams.forEach((value, key) => {
+      url.searchParams.append(key, value);
+    });
+
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Proxying to: \${url.toString()}\`);
+
+    // Prepare headers (exclude host and connection headers)
+    const headers = new Headers();
+    c.req.raw.headers.forEach((value, key) => {
+      if (key.toLowerCase() !== "host" && key.toLowerCase() !== "connection") {
+        headers.set(key, value);
+      }
+    });
+    headers.set("host", baseUrl.host);
+${config.auth ? generateAuthCode(config.auth) : ""}
+
+    // Forward request to original API
+    const method = c.req.method;
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const response = await fetch(url.toString(), {
+      method,
+      headers,
+      body: hasBody ? await c.req.raw.clone().arrayBuffer() : undefined,
+    });
+
+    const duration = Date.now() - startTime;
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Response: \${response.status} \${response.statusText} (\${duration}ms)\`);
+
+    // Forward response
+    const responseBody = await response.arrayBuffer();
+    return new Response(responseBody, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+    });
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    console.error(\`[\${new Date().toISOString()}] [\${requestId}] Proxy error after \${duration}ms:\`, error);
+    return c.json({ error: "Failed to proxy request" }, 500);
+  }
+});`;
+    })
+    .join("\n\n");
 
   return `import { config } from "dotenv";
 import { Hono } from "hono";
@@ -176,85 +209,7 @@ app.use(
 
 // Proxy routes - these will only execute if payment is verified by the middleware above
 // If payment is missing or invalid, the middleware will return 402 before reaching these handlers
-${normalizedPaths
-  .map(apiPath => {
-    return apiPath.methods
-      .map(method => {
-        const methodLower = method.toLowerCase();
-        const upstreamPathCode = apiPath.hasParams
-          ? `    const upstreamPath = "${apiPath.path}".replace(/\\{([^}]+)\\}/g, (_match, name) => {
-      const value = c.req.param(name);
-      if (value == null) {
-        throw new Error(\`Missing path parameter: \${name}\`);
-      }
-      return encodeURIComponent(value);
-    });`
-          : `    const upstreamPath = "${apiPath.path}";`;
-
-        const requestBodyCode =
-          method !== "GET" && method !== "HEAD"
-            ? "      body: await c.req.raw.clone().arrayBuffer(),"
-            : "      // No body for GET/HEAD requests";
-
-        return `app.${methodLower}("${apiPath.honoPath}", async (c) => {
-  const requestId = crypto.randomUUID();
-  const startTime = Date.now();
-  
-  try {
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Incoming request: ${method} \${c.req.path}\`);
-    
-    const baseUrl = new URL(apiBaseUrl);
-${upstreamPathCode}
-    const url = new URL(upstreamPath, baseUrl);
-
-    // Forward query parameters
-    const searchParams = new URL(c.req.url).searchParams;
-    searchParams.forEach((value, key) => {
-      url.searchParams.append(key, value);
-    });
-
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Proxying to: \${url.toString()}\`);
-
-    // Prepare headers (exclude host and connection headers)
-    const headers = new Headers();
-    c.req.raw.headers.forEach((value, key) => {
-      if (key.toLowerCase() !== "host" && key.toLowerCase() !== "connection") {
-        headers.set(key, value);
-      }
-    });
-    headers.set("host", baseUrl.host);
-${config.auth ? generateAuthCode(config.auth) : ""}
-
-    // Forward request to original API
-    const response = await fetch(url.toString(), {
-      method: "${method}",
-      headers,
-${requestBodyCode}
-    });
-
-    const duration = Date.now() - startTime;
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Response: \${response.status} \${response.statusText} (\${duration}ms)\`);
-
-    // Forward response
-    const responseBody = await response.arrayBuffer();
-    return new Response(responseBody, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-    });
-  } catch (error) {
-    const duration = Date.now() - startTime;
-    console.error(\`[\${new Date().toISOString()}] [\${requestId}] Proxy error after \${duration}ms:\`, error);
-    if (error instanceof Error && error.message.startsWith("Missing path parameter")) {
-      return c.json({ error: error.message }, 400);
-    }
-    return c.json({ error: "Failed to proxy request" }, 500);
-  }
-});`;
-      })
-      .join("\n\n");
-  })
-  .join("\n\n")}
+${proxyRoutes}
 
 // Catch-all route for unmatched paths - returns 404
 app.all("*", (c) => {
@@ -422,15 +377,15 @@ The server proxies requests to: \`${config.baseUrl}\`
 
 All endpoints require payment as configured. See the payment middleware configuration in \`src/index.ts\` for pricing details.
 
-## Endpoints
+## Routes
 
-This server proxies the following endpoints from the original API:
+This server proxies the following routes:
 
-${Object.keys(config.endpointPrices).length > 0
-  ? Object.entries(config.endpointPrices)
-      .map(([path, price]) => `- \`${path}\` - Price: \`${price}\``)
+${config.routes.length > 0
+  ? config.routes
+      .map(route => `- \`${route.path}\` - Price: \`${route.price}\``)
       .join("\n")
-  : `- All endpoints - Price: \`${config.defaultPrice}\``}
+  : `- All routes - Price: \`${config.defaultPrice}\``}
 
 ## Environment Variables
 
@@ -452,16 +407,14 @@ ${Object.keys(config.endpointPrices).length > 0
  */
 export async function generateProject(
   config: ProjectConfig,
-  paths: OpenApiPath[],
   outputDir: string,
-  openApiFilePath?: string,
 ): Promise<void> {
   try {
     // Create directory structure
     await fs.ensureDir(path.join(outputDir, "src"));
 
     // Generate main server file
-    const serverContent = generateServerFile(config, paths);
+    const serverContent = generateServerFile(config);
     await fs.writeFile(path.join(outputDir, "src", "index.ts"), serverContent, "utf-8");
 
     // Generate package.json
@@ -479,19 +432,6 @@ export async function generateProject(
     // Generate README.md
     const readme = generateReadme(config);
     await fs.writeFile(path.join(outputDir, "README.md"), readme, "utf-8");
-
-    // Copy OpenAPI spec if it was downloaded and not already in the project directory
-    if (openApiFilePath) {
-      const specFileName = path.basename(openApiFilePath);
-      const destPath = path.join(outputDir, specFileName);
-      const sourcePath = path.resolve(openApiFilePath);
-      const destPathResolved = path.resolve(destPath);
-      
-      // Only copy if source and destination are different
-      if (sourcePath !== destPathResolved) {
-        await fs.copy(openApiFilePath, destPath);
-      }
-    }
 
     console.log(chalk.green(`✓ Project generated successfully in ${outputDir}`));
   } catch (error) {
