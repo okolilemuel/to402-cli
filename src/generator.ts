@@ -150,10 +150,13 @@ if (!facilitatorUrl || !payTo || !network) {
 
 // Authentication configuration
 ${config.auth ? generateAuthConfig(config.auth) : "// No authentication configured"}
+${config.auth ? `console.log(\`[\${new Date().toISOString()}] Authentication configured: ${config.auth.type}\`);` : "console.log(`[${new Date().toISOString()}] No authentication configured`);"}
 
 const app = new Hono();
 
-console.log("Server is running on port", process.env.PORT || 4021);
+const port = Number(process.env.PORT) || 4021;
+console.log(\`[\${new Date().toISOString()}] Server starting on port \${port}\`);
+console.log(\`[\${new Date().toISOString()}] Proxying to API: \${apiBaseUrl}\`);
 
 // Configure payment middleware - this enforces payment requirements
 // The middleware will return HTTP 402 (Payment Required) if:
@@ -194,7 +197,12 @@ ${normalizedPaths
             : "      // No body for GET/HEAD requests";
 
         return `app.${methodLower}("${apiPath.honoPath}", async (c) => {
+  const requestId = crypto.randomUUID();
+  const startTime = Date.now();
+  
   try {
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Incoming request: ${method} \${c.req.path}\`);
+    
     const baseUrl = new URL(apiBaseUrl);
 ${upstreamPathCode}
     const url = new URL(upstreamPath, baseUrl);
@@ -204,6 +212,8 @@ ${upstreamPathCode}
     searchParams.forEach((value, key) => {
       url.searchParams.append(key, value);
     });
+
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Proxying to: \${url.toString()}\`);
 
     // Prepare headers (exclude host and connection headers)
     const headers = new Headers();
@@ -222,6 +232,9 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
 ${requestBodyCode}
     });
 
+    const duration = Date.now() - startTime;
+    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Response: \${response.status} \${response.statusText} (\${duration}ms)\`);
+
     // Forward response
     const responseBody = await response.arrayBuffer();
     return new Response(responseBody, {
@@ -230,7 +243,8 @@ ${requestBodyCode}
       headers: Object.fromEntries(response.headers.entries()),
     });
   } catch (error) {
-    console.error("Proxy error:", error);
+    const duration = Date.now() - startTime;
+    console.error(\`[\${new Date().toISOString()}] [\${requestId}] Proxy error after \${duration}ms:\`, error);
     if (error instanceof Error && error.message.startsWith("Missing path parameter")) {
       return c.json({ error: error.message }, 400);
     }
@@ -244,13 +258,16 @@ ${requestBodyCode}
 
 // Catch-all route for unmatched paths - returns 404
 app.all("*", (c) => {
+  console.log(\`[\${new Date().toISOString()}] 404 Not Found: \${c.req.method} \${c.req.path}\`);
   return c.json({ error: "Not Found" }, 404);
 });
 
 serve({
   fetch: app.fetch,
-  port: Number(process.env.PORT) || 4021,
+  port,
 });
+
+console.log(\`[\${new Date().toISOString()}] ✅ Server is running on port \${port}\`);
 `;
 }
 
