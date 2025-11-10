@@ -7,31 +7,52 @@ import path from "path";
 import { ProjectConfig, OpenApiPath } from "./types.js";
 import chalk from "chalk";
 
+function convertPathToHono(pathTemplate: string): {
+  honoPath: string;
+  hasParams: boolean;
+} {
+  const hasParams = /\{[^}]+\}/.test(pathTemplate);
+  if (!hasParams) {
+    return {
+      honoPath: pathTemplate,
+      hasParams: false,
+    };
+  }
+
+  const honoPath = pathTemplate.replace(/\{([^}]+)\}/g, (_match, paramName) => `:${paramName}`);
+  return {
+    honoPath,
+    hasParams: true,
+  };
+}
+
 /**
  * Generates the main server file
  */
 function generateServerFile(config: ProjectConfig, paths: OpenApiPath[]): string {
-  const paymentConfig: Record<string, any> = {};
-
-  for (const apiPath of paths) {
+  const normalizedPaths = paths.map(apiPath => {
     const price = config.endpointPrices[apiPath.path] || config.defaultPrice;
-    paymentConfig[apiPath.path] = {
+    const { honoPath, hasParams } = convertPathToHono(apiPath.path);
+
+    return {
+      ...apiPath,
+      honoPath,
+      hasParams,
       price,
-      network: config.network,
     };
-  }
+  });
 
   // Format payment config as JavaScript object
-  if (Object.keys(paymentConfig).length === 0) {
+  if (normalizedPaths.length === 0) {
     throw new Error("No API paths found in OpenAPI spec");
   }
-  
-  const paymentConfigEntries = Object.entries(paymentConfig)
-    .map(([path, config]) => {
-      return `    "${path}": {\n      price: "${config.price}",\n      network,\n    }`;
+
+  const paymentConfigEntries = normalizedPaths
+    .map(apiPath => {
+      return `    "${apiPath.honoPath}": {\n      price: "${apiPath.price}",\n      network,\n    }`;
     })
     .join(",\n");
-  
+
   const paymentConfigStr = `{\n${paymentConfigEntries}\n  }`;
 
   return `import { config } from "dotenv";
@@ -67,17 +88,32 @@ app.use(
 );
 
 // Proxy routes
-${paths
-  .map((apiPath) => {
+${normalizedPaths
+  .map(apiPath => {
     return apiPath.methods
-      .map((method) => {
+      .map(method => {
         const methodLower = method.toLowerCase();
-        return `app.${methodLower}("${apiPath.path}", async (c) => {
+        const upstreamPathCode = apiPath.hasParams
+          ? `    const upstreamPath = "${apiPath.path}".replace(/\\{([^}]+)\\}/g, (_match, name) => {
+      const value = c.req.param(name);
+      if (value == null) {
+        throw new Error(\`Missing path parameter: \${name}\`);
+      }
+      return encodeURIComponent(value);
+    });`
+          : `    const upstreamPath = "${apiPath.path}";`;
+
+        const requestBodyCode =
+          method !== "GET" && method !== "HEAD"
+            ? "      body: await c.req.raw.clone().arrayBuffer(),"
+            : "      // No body for GET/HEAD requests";
+
+        return `app.${methodLower}("${apiPath.honoPath}", async (c) => {
   try {
     const baseUrl = new URL(apiBaseUrl);
-    const path = "${apiPath.path}";
-    const url = new URL(path, baseUrl);
-    
+${upstreamPathCode}
+    const url = new URL(upstreamPath, baseUrl);
+
     // Forward query parameters
     const searchParams = new URL(c.req.url).searchParams;
     searchParams.forEach((value, key) => {
@@ -97,7 +133,7 @@ ${paths
     const response = await fetch(url.toString(), {
       method: "${method}",
       headers,
-      body: ${method !== "GET" && method !== "HEAD" ? "await c.req.raw.clone().arrayBuffer()" : "undefined"},
+${requestBodyCode}
     });
 
     // Forward response
@@ -109,6 +145,9 @@ ${paths
     });
   } catch (error) {
     console.error("Proxy error:", error);
+    if (error instanceof Error && error.message.startsWith("Missing path parameter")) {
+      return c.json({ error: error.message }, 400);
+    }
     return c.json({ error: "Failed to proxy request" }, 500);
   }
 });`;
