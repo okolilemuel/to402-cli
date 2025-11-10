@@ -76,7 +76,12 @@ const app = new Hono();
 
 console.log("Server is running on port", process.env.PORT || 4021);
 
-// Configure payment middleware
+// Configure payment middleware - this enforces payment requirements
+// The middleware will return HTTP 402 (Payment Required) if:
+// - The X-PAYMENT header is missing
+// - The payment is invalid or insufficient
+// - The payment verification fails
+// Only requests with valid payment will proceed to the route handlers
 app.use(
   paymentMiddleware(
     payTo,
@@ -87,7 +92,8 @@ app.use(
   ),
 );
 
-// Proxy routes
+// Proxy routes - these will only execute if payment is verified by the middleware above
+// If payment is missing or invalid, the middleware will return 402 before reaching these handlers
 ${normalizedPaths
   .map(apiPath => {
     return apiPath.methods
@@ -155,6 +161,11 @@ ${requestBodyCode}
       .join("\n\n");
   })
   .join("\n\n")}
+
+// Catch-all route for unmatched paths - returns 404
+app.all("*", (c) => {
+  return c.json({ error: "Not Found" }, 404);
+});
 
 serve({
   fetch: app.fetch,
