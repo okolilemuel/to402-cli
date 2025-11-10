@@ -208,6 +208,12 @@ app.all("${routePath}", async (c) => {
     });
     headers.set("host", baseUrl.host);
 ${config.auth ? generateAuthCode(config.auth) : ""}
+    
+    // Log custom headers being added (for debugging)
+    ${config.auth && config.auth.type === "custom" && config.auth.customHeaders ? `console.log(\`   🔐 Custom headers added: \${Object.keys(customHeaders).join(", ")}\`);` : ""}
+    ${config.auth && config.auth.type === "apiKey" ? `if (apiKeyValue) { console.log(\`   🔐 API Key header added: \${apiKeyHeader}\`); }` : ""}
+    ${config.auth && config.auth.type === "bearer" ? `if (bearerToken) { console.log(\`   🔐 Bearer token added to Authorization header\`); }` : ""}
+    ${config.auth && config.auth.type === "basic" ? `if (basicAuthUsername && basicAuthPassword) { console.log(\`   🔐 Basic Auth credentials added\`); }` : ""}
 
     // Forward request to original API
     const method = c.req.method;
@@ -258,11 +264,17 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
     }
 
     // Forward response
+    // Note: fetch() automatically decompresses responses, so we need to remove
+    // content-encoding headers to prevent double decompression
+    const responseHeaders = new Headers(response.headers);
+    responseHeaders.delete("content-encoding"); // Remove compression header since fetch already decompressed
+    responseHeaders.delete("content-length"); // Content length may be different after decompression
+    
     const responseBody = await response.arrayBuffer();
     return new Response(responseBody, {
       status: response.status,
       statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
+      headers: Object.fromEntries(responseHeaders.entries()),
     });
   } catch (error) {
     const duration = Date.now() - startTime;
