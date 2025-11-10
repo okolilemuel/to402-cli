@@ -5,7 +5,7 @@
 import fs from "fs-extra";
 import path from "path";
 import yaml from "js-yaml";
-import { ParsedOpenApi, OpenApiPath } from "./types.js";
+import { ParsedOpenApi, OpenApiPath, SecurityScheme } from "./types.js";
 
 /**
  * Downloads an OpenAPI spec from a URL
@@ -85,6 +85,46 @@ export async function parseOpenApiSpec(filePath: string): Promise<ParsedOpenApi>
       baseUrl = spec.servers[0].url;
     }
 
+    // Extract security schemes (excluding OAuth2 and OpenID Connect)
+    const securitySchemes: SecurityScheme[] = [];
+    const components = spec.components || {};
+    const securitySchemesObj = components.securitySchemes || {};
+
+    for (const [name, scheme] of Object.entries(securitySchemesObj)) {
+      if (typeof scheme !== "object" || scheme === null) continue;
+
+      const schemeType = (scheme as any).type;
+      
+      // Skip OAuth2 and OpenID Connect for now
+      if (schemeType === "oauth2" || schemeType === "openIdConnect") {
+        continue;
+      }
+
+      if (schemeType === "apiKey") {
+        const apiKeyScheme = scheme as any;
+        securitySchemes.push({
+          name,
+          type: "apiKey",
+          in: apiKeyScheme.in,
+          headerName: apiKeyScheme.in === "header" ? apiKeyScheme.name : undefined,
+          queryName: apiKeyScheme.in === "query" ? apiKeyScheme.name : undefined,
+          cookieName: apiKeyScheme.in === "cookie" ? apiKeyScheme.name : undefined,
+        });
+      } else if (schemeType === "http") {
+        const httpScheme = scheme as any;
+        const httpSchemeType = httpScheme.scheme?.toLowerCase();
+        if (httpSchemeType === "basic" || httpSchemeType === "bearer") {
+          securitySchemes.push({
+            name,
+            type: "http",
+            scheme: httpSchemeType,
+            bearerFormat: httpScheme.bearerFormat,
+          });
+        }
+      }
+      // Skip mutualTLS and other unsupported auth types
+    }
+
     // Extract paths
     const paths: OpenApiPath[] = [];
     const pathsObj = spec.paths || {};
@@ -124,6 +164,7 @@ export async function parseOpenApiSpec(filePath: string): Promise<ParsedOpenApi>
       baseUrl,
       paths,
       spec,
+      securitySchemes,
     };
   } catch (error) {
     throw new Error(

@@ -4,7 +4,7 @@
 
 import fs from "fs-extra";
 import path from "path";
-import { ProjectConfig, OpenApiPath } from "./types.js";
+import { ProjectConfig, OpenApiPath, AuthConfig } from "./types.js";
 import chalk from "chalk";
 
 function convertPathToHono(pathTemplate: string): {
@@ -24,6 +24,82 @@ function convertPathToHono(pathTemplate: string): {
     honoPath,
     hasParams: true,
   };
+}
+
+/**
+ * Generates authentication configuration code
+ */
+function generateAuthConfig(auth: AuthConfig): string {
+  if (auth.type === "apiKey") {
+    if (auth.headerName) {
+      return `const apiKeyHeader = process.env.API_KEY_HEADER || "${auth.headerName}";
+const apiKeyValue = process.env.API_KEY;
+if (!apiKeyValue) {
+  console.warn("⚠️  API Key not set in environment variables");
+}`;
+    } else if (auth.queryName) {
+      return `const apiKeyQuery = process.env.API_KEY_QUERY || "${auth.queryName}";
+const apiKeyValue = process.env.API_KEY;
+if (!apiKeyValue) {
+  console.warn("⚠️  API Key not set in environment variables");
+}`;
+    } else if (auth.cookieName) {
+      return `const apiKeyCookie = process.env.API_KEY_COOKIE || "${auth.cookieName}";
+const apiKeyValue = process.env.API_KEY;
+if (!apiKeyValue) {
+  console.warn("⚠️  API Key not set in environment variables");
+}`;
+    }
+  } else if (auth.type === "bearer") {
+    return `const bearerToken = process.env.BEARER_TOKEN;
+if (!bearerToken) {
+  console.warn("⚠️  Bearer Token not set in environment variables");
+}`;
+  } else if (auth.type === "basic") {
+    return `const basicAuthUsername = process.env.BASIC_AUTH_USERNAME;
+const basicAuthPassword = process.env.BASIC_AUTH_PASSWORD;
+if (!basicAuthUsername || !basicAuthPassword) {
+  console.warn("⚠️  Basic Auth credentials not set in environment variables");
+}`;
+  }
+  return "";
+}
+
+/**
+ * Generates code to add authentication to request headers/query
+ */
+function generateAuthCode(auth: AuthConfig): string {
+  if (auth.type === "apiKey") {
+    if (auth.headerName) {
+      return `    // Add API Key header
+    if (apiKeyValue) {
+      headers.set(apiKeyHeader, apiKeyValue);
+    }`;
+    } else if (auth.queryName) {
+      return `    // Add API Key query parameter
+    if (apiKeyValue) {
+      url.searchParams.append(apiKeyQuery, apiKeyValue);
+    }`;
+    } else if (auth.cookieName) {
+      return `    // Add API Key cookie
+    if (apiKeyValue) {
+      const existingCookie = headers.get("Cookie") || "";
+      headers.set("Cookie", existingCookie ? \`\${existingCookie}; \${apiKeyCookie}=\${apiKeyValue}\` : \`\${apiKeyCookie}=\${apiKeyValue}\`);
+    }`;
+    }
+  } else if (auth.type === "bearer") {
+    return `    // Add Bearer token
+    if (bearerToken) {
+      headers.set("Authorization", \`Bearer \${bearerToken}\`);
+    }`;
+  } else if (auth.type === "basic") {
+    return `    // Add Basic Auth
+    if (basicAuthUsername && basicAuthPassword) {
+      const credentials = Buffer.from(\`\${basicAuthUsername}:\${basicAuthPassword}\`).toString("base64");
+      headers.set("Authorization", \`Basic \${credentials}\`);
+    }`;
+  }
+  return "";
 }
 
 /**
@@ -71,6 +147,9 @@ if (!facilitatorUrl || !payTo || !network) {
   console.error("Missing required environment variables");
   process.exit(1);
 }
+
+// Authentication configuration
+${config.auth ? generateAuthConfig(config.auth) : "// No authentication configured"}
 
 const app = new Hono();
 
@@ -134,6 +213,7 @@ ${upstreamPathCode}
       }
     });
     headers.set("host", baseUrl.host);
+${config.auth ? generateAuthCode(config.auth) : ""}
 
     // Forward request to original API
     const response = await fetch(url.toString(), {
@@ -236,6 +316,38 @@ function generateTsConfig(): string {
  * Generates .env.example file
  */
 function generateEnvExample(config: ProjectConfig): string {
+  let authSection = "";
+  
+  if (config.auth) {
+    if (config.auth.type === "apiKey") {
+      if (config.auth.headerName) {
+        authSection = `# API Key Authentication (Header)
+API_KEY_HEADER=${config.auth.headerName}
+API_KEY=your-api-key-here
+`;
+      } else if (config.auth.queryName) {
+        authSection = `# API Key Authentication (Query Parameter)
+API_KEY_QUERY=${config.auth.queryName}
+API_KEY=your-api-key-here
+`;
+      } else if (config.auth.cookieName) {
+        authSection = `# API Key Authentication (Cookie)
+API_KEY_COOKIE=${config.auth.cookieName}
+API_KEY=your-api-key-here
+`;
+      }
+    } else if (config.auth.type === "bearer") {
+      authSection = `# Bearer Token Authentication
+BEARER_TOKEN=your-bearer-token-here
+`;
+    } else if (config.auth.type === "basic") {
+      authSection = `# Basic Authentication
+BASIC_AUTH_USERNAME=your-username-here
+BASIC_AUTH_PASSWORD=your-password-here
+`;
+    }
+  }
+
   return `# x402 Configuration
 FACILITATOR_URL=${config.facilitatorUrl || "https://facilitator.x402.org"}
 ADDRESS=${config.sellerAddress}
@@ -243,7 +355,7 @@ NETWORK=${config.network}
 
 # API Configuration
 API_BASE_URL=${config.baseUrl}
-
+${authSection}
 # Server Configuration
 PORT=4021
 `;

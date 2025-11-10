@@ -10,7 +10,7 @@ import fs from "fs-extra";
 import path from "path";
 import { loadOpenApiSpec, parseOpenApiSpec } from "./openapi.js";
 import { generateProject } from "./generator.js";
-import { ProjectConfig, OpenApiPath } from "./types.js";
+import { ProjectConfig, OpenApiPath, AuthConfig } from "./types.js";
 
 const networks = ["base", "ethereum", "solana", "polygon", "arbitrum", "optimism"];
 
@@ -317,6 +317,257 @@ async function runInteractiveSetup(): Promise<void> {
     },
   ]);
 
+  // Step 11: Authentication
+  let authConfig: AuthConfig | undefined;
+  
+  if (parsedOpenApi.securitySchemes.length > 0) {
+    console.log(chalk.blue("\n🔐 Authentication detected in OpenAPI spec"));
+    
+    // If multiple schemes, let user choose which one to use
+    let selectedScheme;
+    if (parsedOpenApi.securitySchemes.length === 1) {
+      selectedScheme = parsedOpenApi.securitySchemes[0];
+      console.log(chalk.cyan(`Using: ${selectedScheme.name} (${selectedScheme.type})`));
+    } else {
+      const { schemeName } = await inquirer.prompt([
+        {
+          type: "list",
+          name: "schemeName",
+          message: "Select authentication method:",
+          choices: parsedOpenApi.securitySchemes.map(s => ({
+            name: `${s.name} (${s.type}${s.scheme ? ` - ${s.scheme}` : ""})`,
+            value: s.name,
+          })),
+        },
+      ]);
+      selectedScheme = parsedOpenApi.securitySchemes.find(s => s.name === schemeName);
+    }
+
+    if (selectedScheme) {
+      if (selectedScheme.type === "apiKey") {
+        const promptMessage = selectedScheme.in === "header"
+          ? `API Key for ${selectedScheme.headerName || "header"}:`
+          : selectedScheme.in === "query"
+          ? `API Key for query parameter ${selectedScheme.queryName || "query"}:`
+          : `API Key for cookie ${selectedScheme.cookieName || "cookie"}:`;
+        
+        const { apiKey } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "apiKey",
+            message: promptMessage,
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "API Key cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "apiKey",
+          value: apiKey.trim(),
+          headerName: selectedScheme.headerName,
+          queryName: selectedScheme.queryName,
+          cookieName: selectedScheme.cookieName,
+        };
+      } else if (selectedScheme.type === "http" && selectedScheme.scheme === "bearer") {
+        const { bearerToken } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "bearerToken",
+            message: "Bearer Token:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Bearer Token cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "bearer",
+          value: bearerToken.trim(),
+        };
+      } else if (selectedScheme.type === "http" && selectedScheme.scheme === "basic") {
+        const { username, password } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "username",
+            message: "Username:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Username cannot be empty";
+              }
+              return true;
+            },
+          },
+          {
+            type: "password",
+            name: "password",
+            message: "Password:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Password cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "basic",
+          username: username.trim(),
+          password: password.trim(),
+        };
+      }
+    }
+  } else {
+    // No auth in spec, ask if user wants to add custom
+    const { addCustomAuth } = await inquirer.prompt([
+      {
+        type: "confirm",
+        name: "addCustomAuth",
+        message: "No authentication found in OpenAPI spec. Add custom authentication?",
+        default: false,
+      },
+    ]);
+
+    if (addCustomAuth) {
+      const { authType } = await inquirer.prompt([
+        {
+          type: "list",
+          name: "authType",
+          message: "Select authentication type:",
+          choices: [
+            { name: "API Key (Header)", value: "apiKeyHeader" },
+            { name: "API Key (Query Parameter)", value: "apiKeyQuery" },
+            { name: "Bearer Token", value: "bearer" },
+            { name: "Basic Auth", value: "basic" },
+          ],
+        },
+      ]);
+
+      if (authType === "apiKeyHeader") {
+        const { headerName, apiKey } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "headerName",
+            message: "Header name (e.g., X-API-Key):",
+            default: "X-API-Key",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Header name cannot be empty";
+              }
+              return true;
+            },
+          },
+          {
+            type: "input",
+            name: "apiKey",
+            message: "API Key:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "API Key cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "apiKey",
+          value: apiKey.trim(),
+          headerName: headerName.trim(),
+        };
+      } else if (authType === "apiKeyQuery") {
+        const { queryName, apiKey } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "queryName",
+            message: "Query parameter name (e.g., api_key):",
+            default: "api_key",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Query parameter name cannot be empty";
+              }
+              return true;
+            },
+          },
+          {
+            type: "input",
+            name: "apiKey",
+            message: "API Key:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "API Key cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "apiKey",
+          value: apiKey.trim(),
+          queryName: queryName.trim(),
+        };
+      } else if (authType === "bearer") {
+        const { bearerToken } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "bearerToken",
+            message: "Bearer Token:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Bearer Token cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "bearer",
+          value: bearerToken.trim(),
+        };
+      } else if (authType === "basic") {
+        const { username, password } = await inquirer.prompt([
+          {
+            type: "input",
+            name: "username",
+            message: "Username:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Username cannot be empty";
+              }
+              return true;
+            },
+          },
+          {
+            type: "password",
+            name: "password",
+            message: "Password:",
+            validate: (input: string) => {
+              if (!input.trim()) {
+                return "Password cannot be empty";
+              }
+              return true;
+            },
+          },
+        ]);
+
+        authConfig = {
+          type: "basic",
+          username: username.trim(),
+          password: password.trim(),
+        };
+      }
+    }
+  }
+
   // Build config
   const config: ProjectConfig = {
     projectName,
@@ -328,6 +579,7 @@ async function runInteractiveSetup(): Promise<void> {
     network,
     facilitatorUrl: facilitatorUrl.trim(),
     endpointPrices,
+    auth: authConfig,
   };
 
   // Generate project
