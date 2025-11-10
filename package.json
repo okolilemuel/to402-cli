@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "tsx src/cli.ts",
+    "to402-cli": "tsx src/cli.ts",
     "build": "tsup src/cli.ts --format esm --dts --outDir dist --entry src/cli.ts",
     "format": "prettier -c .prettierrc --write \"**/*.{ts,js,cjs,json,md}\"",
     "format:check": "prettier -c .prettierrc --check \"**/*.{ts,js,cjs,json,md}\"",

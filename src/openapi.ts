@@ -2,7 +2,6 @@
  * OpenAPI schema handling utilities
  */
 
-import { parse } from "@scalar/openapi-parser";
 import fs from "fs-extra";
 import path from "path";
 import yaml from "js-yaml";
@@ -80,15 +79,10 @@ export async function parseOpenApiSpec(filePath: string): Promise<ParsedOpenApi>
       spec = JSON.parse(content);
     }
 
-    // Use the parser to validate and get structured data
-    const parsed = await parse(spec);
-
     // Extract base URL from servers array
     let baseUrl = "";
     if (spec.servers && spec.servers.length > 0) {
       baseUrl = spec.servers[0].url;
-    } else if (parsed.servers && parsed.servers.length > 0) {
-      baseUrl = parsed.servers[0].url;
     }
 
     // Extract paths
