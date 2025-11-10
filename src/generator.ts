@@ -301,10 +301,17 @@ export async function generateProject(
     const readme = generateReadme(config);
     await fs.writeFile(path.join(outputDir, "README.md"), readme, "utf-8");
 
-    // Copy OpenAPI spec if it was downloaded
+    // Copy OpenAPI spec if it was downloaded and not already in the project directory
     if (openApiFilePath) {
       const specFileName = path.basename(openApiFilePath);
-      await fs.copy(openApiFilePath, path.join(outputDir, specFileName));
+      const destPath = path.join(outputDir, specFileName);
+      const sourcePath = path.resolve(openApiFilePath);
+      const destPathResolved = path.resolve(destPath);
+      
+      // Only copy if source and destination are different
+      if (sourcePath !== destPathResolved) {
+        await fs.copy(openApiFilePath, destPath);
+      }
     }
 
     console.log(chalk.green(`✓ Project generated successfully in ${outputDir}`));
