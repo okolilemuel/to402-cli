@@ -148,7 +148,12 @@ function generateServerFile(config: ProjectConfig): string {
 
   const paymentConfigEntries = config.routes
     .map(route => {
-      return `    "${route.path}": {\n      price: "${route.price}",\n      network,\n    }`;
+      // Convert /* to * for payment middleware (Hono uses * for catch-all)
+      let paymentPath = route.path;
+      if (paymentPath === "/*") {
+        paymentPath = "*";
+      }
+      return `    "${paymentPath}": {\n      price: "${route.price}",\n      network,\n    }`;
     })
     .join(",\n");
 
@@ -157,8 +162,12 @@ function generateServerFile(config: ProjectConfig): string {
   // Generate proxy routes for each configured route
   const proxyRoutes = config.routes
     .map(route => {
-      // Hono uses /* for wildcard routes
-      const routePath = route.path;
+      // Hono uses * for catch-all routes, /* for paths starting with /
+      // Convert /* to * for proper matching
+      let routePath = route.path;
+      if (routePath === "/*") {
+        routePath = "*";
+      }
       
       return `// Proxy route: ${route.path}
 app.all("${routePath}", async (c) => {
@@ -166,11 +175,21 @@ app.all("${routePath}", async (c) => {
   const startTime = Date.now();
   
   try {
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Incoming request: \${c.req.method} \${c.req.path}\`);
+    const timestamp = new Date().toISOString();
+    console.log(\`\n📥 [\${timestamp}] [\${requestId}] Incoming request\`);
+    console.log(\`   Method: \${c.req.method}\`);
+    console.log(\`   Path: \${c.req.path}\`);
+    console.log(\`   URL: \${c.req.url}\`);
     
     const baseUrl = new URL(apiBaseUrl);
-    const path = c.req.path;
-    const url = new URL(path, baseUrl);
+    // Remove leading slash from request path to properly append to base URL
+    const requestPath = c.req.path.startsWith("/") ? c.req.path.slice(1) : c.req.path;
+    // Ensure base URL pathname ends with / for proper joining
+    const basePathname = baseUrl.pathname.endsWith("/") ? baseUrl.pathname : baseUrl.pathname + "/";
+    // Construct the full pathname by joining base pathname with request path
+    const fullPathname = basePathname + requestPath;
+    // Create the final URL
+    const url = new URL(fullPathname, baseUrl);
 
     // Forward query parameters
     const searchParams = new URL(c.req.url).searchParams;
@@ -178,7 +197,7 @@ app.all("${routePath}", async (c) => {
       url.searchParams.append(key, value);
     });
 
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Proxying to: \${url.toString()}\`);
+    console.log(\`   🔄 Proxying to: \${url.toString()}\`);
 
     // Prepare headers (exclude host and connection headers)
     const headers = new Headers();
@@ -193,14 +212,50 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
     // Forward request to original API
     const method = c.req.method;
     const hasBody = method !== "GET" && method !== "HEAD";
-    const response = await fetch(url.toString(), {
-      method,
-      headers,
-      body: hasBody ? await c.req.raw.clone().arrayBuffer() : undefined,
-    });
+    
+    let response: Response;
+    try {
+      response = await fetch(url.toString(), {
+        method,
+        headers,
+        body: hasBody ? await c.req.raw.clone().arrayBuffer() : undefined,
+      });
+    } catch (fetchError) {
+      const duration = Date.now() - startTime;
+      console.error(\`\n❌ [\${new Date().toISOString()}] [\${requestId}] Fetch error after \${duration}ms\`);
+      console.error(\`   Error: \${fetchError instanceof Error ? fetchError.message : String(fetchError)}\`);
+      console.error(\`   Target URL: \${url.toString()}\`);
+      console.error(\`\n💡 Troubleshooting tips:\`);
+      console.error(\`   - Verify the API base URL is correct: \${apiBaseUrl}\`);
+      console.error(\`   - Check if the upstream API is accessible\`);
+      console.error(\`   - Ensure network connectivity\`);
+      if (fetchError instanceof Error && fetchError.stack) {
+        console.error(\`   Stack trace: \${fetchError.stack}\`);
+      }
+      return c.json({ 
+        error: "Failed to proxy request",
+        message: fetchError instanceof Error ? fetchError.message : String(fetchError),
+        requestId 
+      }, 502);
+    }
 
     const duration = Date.now() - startTime;
-    console.log(\`[\${new Date().toISOString()}] [\${requestId}] Response: \${response.status} \${response.statusText} (\${duration}ms)\`);
+    const statusEmoji = response.status >= 200 && response.status < 300 ? "✅" : 
+                       response.status >= 400 && response.status < 500 ? "⚠️" : 
+                       response.status >= 500 ? "❌" : "ℹ️";
+    console.log(\`   \${statusEmoji} Response: \${response.status} \${response.statusText} (\${duration}ms)\`);
+    
+    if (response.status >= 400) {
+      console.warn(\`   ⚠️  Upstream API returned error status\`);
+      try {
+        const errorBody = await response.clone().text();
+        if (errorBody) {
+          console.warn(\`   Response body: \${errorBody.substring(0, 200)}\${errorBody.length > 200 ? "..." : ""}\`);
+        }
+      } catch {
+        // Ignore error body parsing errors
+      }
+    }
 
     // Forward response
     const responseBody = await response.arrayBuffer();
@@ -211,8 +266,20 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
     });
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error(\`[\${new Date().toISOString()}] [\${requestId}] Proxy error after \${duration}ms:\`, error);
-    return c.json({ error: "Failed to proxy request" }, 500);
+    console.error(\`\n❌ [\${new Date().toISOString()}] [\${requestId}] Unexpected error after \${duration}ms\`);
+    console.error(\`   Error: \${error instanceof Error ? error.message : String(error)}\`);
+    if (error instanceof Error && error.stack) {
+      console.error(\`   Stack trace: \${error.stack}\`);
+    }
+    console.error(\`\n💡 Troubleshooting tips:\`);
+    console.error(\`   - Check server logs for more details\`);
+    console.error(\`   - Verify the request format is correct\`);
+    console.error(\`   - Ensure all dependencies are properly installed\`);
+    return c.json({ 
+      error: "Internal server error",
+      message: error instanceof Error ? error.message : String(error),
+      requestId 
+    }, 500);
   }
 });`;
     })
@@ -230,20 +297,36 @@ const payTo = process.env.ADDRESS as \`0x\${string}\` | SolanaAddress;
 const network = process.env.NETWORK as Network;
 const apiBaseUrl = process.env.API_BASE_URL || "${config.baseUrl}";
 
+console.log("🔧 Initializing x402 proxy server...");
+console.log(\`📡 Network: \${network || "not set"}\`);
+console.log(\`🌐 API Base URL: \${apiBaseUrl}\`);
+console.log(\`💳 Facilitator URL: \${facilitatorUrl || "not set"}\`);
+console.log(\`💰 Payment Address: \${payTo || "not set"}\`);
+
 if (!facilitatorUrl || !payTo || !network) {
-  console.error("Missing required environment variables");
+  console.error("\n❌ Missing required environment variables");
+  const missing: string[] = [];
+  if (!facilitatorUrl) missing.push("FACILITATOR_URL");
+  if (!payTo) missing.push("ADDRESS");
+  if (!network) missing.push("NETWORK");
+  console.error(\`   Missing: \${missing.join(", ")}\`);
+  console.error("\n💡 Troubleshooting tips:");
+  console.error("   - Ensure all required environment variables are set in your .env file");
+  console.error("   - Check that FACILITATOR_URL is a valid URL");
+  console.error("   - Verify ADDRESS is a valid blockchain address (Ethereum or Solana)");
+  console.error("   - Ensure NETWORK matches your blockchain (e.g., solana-devnet, base, ethereum)");
   process.exit(1);
 }
 
 // Authentication configuration
 ${config.auth ? generateAuthConfig(config.auth) : "// No authentication configured"}
-${config.auth ? `console.log(\`[\${new Date().toISOString()}] Authentication configured: ${config.auth.type}\`);` : "console.log(`[${new Date().toISOString()}] No authentication configured`);"}
+${config.auth ? `console.log(\`✅ Authentication configured: ${config.auth.type}\`);` : "console.log(`ℹ️  No authentication configured`);"}
 
 const app = new Hono();
 
 const port = Number(process.env.PORT) || 4021;
-console.log(\`[\${new Date().toISOString()}] Server starting on port \${port}\`);
-console.log(\`[\${new Date().toISOString()}] Proxying to API: \${apiBaseUrl}\`);
+console.log(\`\n🚀 Starting server on port \${port}...\`);
+console.log(\`📡 Proxying requests to: \${apiBaseUrl}\`);
 
 // Configure payment middleware - this enforces payment requirements
 // The middleware will return HTTP 402 (Payment Required) if:
@@ -267,16 +350,39 @@ ${proxyRoutes}
 
 // Catch-all route for unmatched paths - returns 404
 app.all("*", (c) => {
-  console.log(\`[\${new Date().toISOString()}] 404 Not Found: \${c.req.method} \${c.req.path}\`);
-  return c.json({ error: "Not Found" }, 404);
+  console.warn(\`\n⚠️  [\${new Date().toISOString()}] 404 Not Found\`);
+  console.warn(\`   Method: \${c.req.method}\`);
+  console.warn(\`   Path: \${c.req.path}\`);
+  console.warn(\`   URL: \${c.req.url}\`);
+  console.warn(\`\n💡 This path is not configured in the proxy server.\`);
+  console.warn(\`   Configured routes: ${config.routes.map(r => r.path).join(", ")}\`);
+  return c.json({ 
+    error: "Not Found",
+    message: \`The path \${c.req.path} is not configured in this proxy server\`,
+    availableRoutes: ${JSON.stringify(config.routes.map(r => ({ path: r.path, price: r.price })))}
+  }, 404);
 });
 
-serve({
+const server = serve({
   fetch: app.fetch,
   port,
+}, (info) => {
+  console.log(\`\n✅ Server is running!\`);
+  console.log(\`   Port: \${info.port}\`);
+  console.log(\`   Address: http://localhost:\${info.port}\`);
+  console.log(\`   Network: \${network}\`);
+  console.log(\`   Facilitator: \${facilitatorUrl}\`);
+  console.log(\`   Payment Address: \${payTo}\`);
+  console.log(\`\n📋 Configured routes:\`);
+  ${config.routes.map(route => `  console.log(\`   - \${"${route.path}"} (Price: \${"${route.price}"})\`);`).join("\n")}
+  console.log(\`\n🚀 Ready to accept requests!\n\`);
 });
 
-console.log(\`[\${new Date().toISOString()}] ✅ Server is running on port \${port}\`);
+// Fallback log in case callback doesn't fire immediately
+setTimeout(() => {
+  console.log(\`\n✅ Server is running on port \${port}\`);
+  console.log(\`   Address: http://localhost:\${port}\`);
+}, 100);
 `;
 }
 
