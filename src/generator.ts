@@ -42,6 +42,36 @@ const basicAuthPassword = process.env.BASIC_AUTH_PASSWORD;
 if (!basicAuthUsername || !basicAuthPassword) {
   console.warn("⚠️  Basic Auth credentials not set in environment variables");
 }`;
+  } else if (auth.type === "custom") {
+    let customAuthCode = "";
+    
+    if (auth.customHeaders) {
+      const headerKeys = Object.keys(auth.customHeaders);
+      customAuthCode += `// Custom headers
+const customHeaders: Record<string, string> = {};
+${headerKeys.map(key => {
+  const sanitizedKey = key.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const envVarName = `CUSTOM_HEADER_${sanitizedKey}`;
+  return `const ${envVarName} = process.env.${envVarName} || "${auth.customHeaders![key]}";
+customHeaders["${key}"] = ${envVarName};`;
+}).join("\n")}
+`;
+    }
+    
+    if (auth.customQueryParams) {
+      const paramKeys = Object.keys(auth.customQueryParams);
+      customAuthCode += `// Custom query parameters
+const customQueryParams: Record<string, string> = {};
+${paramKeys.map(key => {
+  const sanitizedKey = key.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+  const envVarName = `CUSTOM_QUERY_${sanitizedKey}`;
+  return `const ${envVarName} = process.env.${envVarName} || "${auth.customQueryParams![key]}";
+customQueryParams["${key}"] = ${envVarName};`;
+}).join("\n")}
+`;
+    }
+    
+    return customAuthCode;
   }
   return "";
 }
@@ -79,6 +109,30 @@ function generateAuthCode(auth: AuthConfig): string {
       const credentials = Buffer.from(\`\${basicAuthUsername}:\${basicAuthPassword}\`).toString("base64");
       headers.set("Authorization", \`Basic \${credentials}\`);
     }`;
+  } else if (auth.type === "custom") {
+    let customAuthCode = "";
+    
+    if (auth.customHeaders) {
+      customAuthCode += `    // Add custom headers
+    Object.entries(customHeaders).forEach(([key, value]) => {
+      if (value) {
+        headers.set(key, value);
+      }
+    });
+`;
+    }
+    
+    if (auth.customQueryParams) {
+      customAuthCode += `    // Add custom query parameters
+    Object.entries(customQueryParams).forEach(([key, value]) => {
+      if (value) {
+        url.searchParams.append(key, value);
+      }
+    });
+`;
+    }
+    
+    return customAuthCode;
   }
   return "";
 }
@@ -285,7 +339,80 @@ function generateTsConfig(): string {
 }
 
 /**
- * Generates .env.example file
+ * Generates .env file with actual credentials
+ */
+function generateEnv(config: ProjectConfig): string {
+  let authSection = "";
+  
+  if (config.auth) {
+    if (config.auth.type === "apiKey") {
+      if (config.auth.headerName) {
+        authSection = `# API Key Authentication (Header)
+API_KEY_HEADER=${config.auth.headerName}
+API_KEY=${config.auth.value || ""}
+`;
+      } else if (config.auth.queryName) {
+        authSection = `# API Key Authentication (Query Parameter)
+API_KEY_QUERY=${config.auth.queryName}
+API_KEY=${config.auth.value || ""}
+`;
+      } else if (config.auth.cookieName) {
+        authSection = `# API Key Authentication (Cookie)
+API_KEY_COOKIE=${config.auth.cookieName}
+API_KEY=${config.auth.value || ""}
+`;
+      }
+    } else if (config.auth.type === "bearer") {
+      authSection = `# Bearer Token Authentication
+BEARER_TOKEN=${config.auth.value || ""}
+`;
+    } else if (config.auth.type === "basic") {
+      authSection = `# Basic Authentication
+BASIC_AUTH_USERNAME=${config.auth.username || ""}
+BASIC_AUTH_PASSWORD=${config.auth.password || ""}
+`;
+    } else if (config.auth.type === "custom") {
+      authSection = "";
+      
+      if (config.auth.customHeaders) {
+        authSection += `# Custom Headers Authentication
+${Object.entries(config.auth.customHeaders)
+  .map(([key, value]) => {
+    const envVarName = `CUSTOM_HEADER_${key.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+    return `${envVarName}=${value || ""}`;
+  })
+  .join("\n")}
+`;
+      }
+      
+      if (config.auth.customQueryParams) {
+        authSection += `# Custom Query Parameters Authentication
+${Object.entries(config.auth.customQueryParams)
+  .map(([key, value]) => {
+    const envVarName = `CUSTOM_QUERY_${key.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+    return `${envVarName}=${value || ""}`;
+  })
+  .join("\n")}
+`;
+      }
+    }
+  }
+
+  return `# x402 Configuration
+FACILITATOR_URL=${config.facilitatorUrl || "https://facilitator.payai.network"}
+ADDRESS=${config.sellerAddress}
+NETWORK=${config.network}
+
+# API Configuration
+API_BASE_URL=${config.baseUrl}
+${authSection}
+# Server Configuration
+PORT=4021
+`;
+}
+
+/**
+ * Generates .env.example file with placeholder values
  */
 function generateEnvExample(config: ProjectConfig): string {
   let authSection = "";
@@ -317,6 +444,30 @@ BEARER_TOKEN=your-bearer-token-here
 BASIC_AUTH_USERNAME=your-username-here
 BASIC_AUTH_PASSWORD=your-password-here
 `;
+    } else if (config.auth.type === "custom") {
+      authSection = "";
+      
+      if (config.auth.customHeaders) {
+        authSection += `# Custom Headers Authentication
+${Object.entries(config.auth.customHeaders)
+  .map(([key]) => {
+    const envVarName = `CUSTOM_HEADER_${key.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+    return `${envVarName}=your-${key.toLowerCase().replace(/[^a-z0-9]/g, "-")}-value-here`;
+  })
+  .join("\n")}
+`;
+      }
+      
+      if (config.auth.customQueryParams) {
+        authSection += `# Custom Query Parameters Authentication
+${Object.entries(config.auth.customQueryParams)
+  .map(([key]) => {
+    const envVarName = `CUSTOM_QUERY_${key.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+    return `${envVarName}=your-${key.toLowerCase().replace(/[^a-z0-9]/g, "-")}-value-here`;
+  })
+  .join("\n")}
+`;
+      }
     }
   }
 
@@ -353,19 +504,19 @@ ${config.network === "base" || config.network === "base-mainnet" ? `- Coinbase D
 
 ## Setup
 
-1. Copy \`.env.example\` to \`.env\` and configure your settings:
+1.${config.auth ? ` ✓ \`.env\` file has been created with your authentication credentials` : ` Copy \`.env.example\` to \`.env\` and configure your settings:
 
 \`\`\`bash
 cp .env.example .env
-\`\`\`
+\`\`\``}
 
-2. Install dependencies:
+${config.auth ? `2.` : `2.`} Install dependencies:
 
 \`\`\`bash
 pnpm install
 \`\`\`
 
-3. Run the server:
+${config.auth ? `3.` : `3.`} Run the server:
 
 \`\`\`bash
 pnpm dev
@@ -425,7 +576,11 @@ export async function generateProject(
     const tsConfig = generateTsConfig();
     await fs.writeFile(path.join(outputDir, "tsconfig.json"), tsConfig, "utf-8");
 
-    // Generate .env.example
+    // Generate .env with actual credentials
+    const env = generateEnv(config);
+    await fs.writeFile(path.join(outputDir, ".env"), env, "utf-8");
+
+    // Generate .env.example with placeholder values
     const envExample = generateEnvExample(config);
     await fs.writeFile(path.join(outputDir, ".env.example"), envExample, "utf-8");
 

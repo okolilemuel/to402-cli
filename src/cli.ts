@@ -276,6 +276,7 @@ async function runInteractiveSetup(): Promise<void> {
           { name: "API Key (Query Parameter)", value: "apiKeyQuery" },
           { name: "Bearer Token", value: "bearer" },
           { name: "Basic Auth", value: "basic" },
+          { name: "Custom (Headers/Query Parameters)", value: "custom" },
         ],
       },
     ]);
@@ -394,6 +395,121 @@ async function runInteractiveSetup(): Promise<void> {
         username: username.trim(),
         password: password.trim(),
       };
+    } else if (authType === "custom") {
+      const { addHeaders, addQueryParams } = await inquirer.prompt([
+        {
+          type: "confirm",
+          name: "addHeaders",
+          message: "Add custom headers?",
+          default: true,
+        },
+        {
+          type: "confirm",
+          name: "addQueryParams",
+          message: "Add custom query parameters?",
+          default: false,
+        },
+      ]);
+
+      const customHeaders: Record<string, string> = {};
+      const customQueryParams: Record<string, string> = {};
+
+      if (addHeaders) {
+        console.log(chalk.blue("\n📝 Configure custom headers (key-value pairs)"));
+        let addMoreHeaders = true;
+        while (addMoreHeaders) {
+          const { headerKey, headerValue } = await inquirer.prompt([
+            {
+              type: "input",
+              name: "headerKey",
+              message: "Header key (e.g., X-Custom-Header):",
+              validate: (input: string) => {
+                if (!input.trim()) {
+                  return "Header key cannot be empty";
+                }
+                return true;
+              },
+            },
+            {
+              type: "input",
+              name: "headerValue",
+              message: "Header value:",
+              validate: (input: string) => {
+                if (!input.trim()) {
+                  return "Header value cannot be empty";
+                }
+                return true;
+              },
+            },
+          ]);
+
+          customHeaders[headerKey.trim()] = headerValue.trim();
+
+          const { addMore } = await inquirer.prompt([
+            {
+              type: "confirm",
+              name: "addMore",
+              message: "Add another header?",
+              default: false,
+            },
+          ]);
+          addMoreHeaders = addMore;
+        }
+      }
+
+      if (addQueryParams) {
+        console.log(chalk.blue("\n📝 Configure custom query parameters (key-value pairs)"));
+        let addMoreParams = true;
+        while (addMoreParams) {
+          const { paramKey, paramValue } = await inquirer.prompt([
+            {
+              type: "input",
+              name: "paramKey",
+              message: "Query parameter key (e.g., custom_param):",
+              validate: (input: string) => {
+                if (!input.trim()) {
+                  return "Query parameter key cannot be empty";
+                }
+                return true;
+              },
+            },
+            {
+              type: "input",
+              name: "paramValue",
+              message: "Query parameter value:",
+              validate: (input: string) => {
+                if (!input.trim()) {
+                  return "Query parameter value cannot be empty";
+                }
+                return true;
+              },
+            },
+          ]);
+
+          customQueryParams[paramKey.trim()] = paramValue.trim();
+
+          const { addMore } = await inquirer.prompt([
+            {
+              type: "confirm",
+              name: "addMore",
+              message: "Add another query parameter?",
+              default: false,
+            },
+          ]);
+          addMoreParams = addMore;
+        }
+      }
+
+      if (Object.keys(customHeaders).length === 0 && Object.keys(customQueryParams).length === 0) {
+        console.log(chalk.yellow("⚠️  No custom headers or query parameters added. Skipping custom auth."));
+        authConfig = undefined;
+      } else {
+        authConfig = {
+          type: "custom",
+          customHeaders: Object.keys(customHeaders).length > 0 ? customHeaders : undefined,
+          customQueryParams: Object.keys(customQueryParams).length > 0 ? customQueryParams : undefined,
+        };
+      }
     }
   }
 
@@ -421,10 +537,14 @@ async function runInteractiveSetup(): Promise<void> {
   console.log(chalk.cyan(`\n📁 Project location: ${path.resolve(projectDir)}`));
   console.log(chalk.yellow("\n📝 Next steps:"));
   console.log(`  1. cd ${projectName}`);
-  console.log(`  2. cp .env.example .env`);
-  console.log(`  3. Edit .env with your configuration`);
-  console.log(`  4. pnpm install`);
-  console.log(`  5. pnpm dev`);
+  if (config.auth) {
+    console.log(chalk.green(`  2. ✓ .env file created with your authentication credentials`));
+    console.log(`  3. pnpm install`);
+    console.log(`  4. pnpm dev`);
+  } else {
+    console.log(`  2. pnpm install`);
+    console.log(`  3. pnpm dev`);
+  }
   console.log();
 }
 

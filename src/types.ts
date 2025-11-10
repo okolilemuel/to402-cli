@@ -3,12 +3,15 @@
  */
 
 export interface AuthConfig {
-  type: "apiKey" | "basic" | "bearer";
+  type: "apiKey" | "basic" | "bearer" | "custom";
   value?: string; // API key or bearer token
   username?: string; // For basic auth
   password?: string; // For basic auth
   headerName?: string; // For API key in header
   queryName?: string; // For API key in query
+  // Custom auth
+  customHeaders?: Record<string, string>; // Key-value pairs for custom headers
+  customQueryParams?: Record<string, string>; // Key-value pairs for custom query parameters
 }
 
 export interface RouteConfig {
