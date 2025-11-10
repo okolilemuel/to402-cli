@@ -41,8 +41,34 @@ to402 create
 - 🚀 **Interactive Setup**: Step-by-step prompts for easy configuration
 - 💰 **Flexible Pricing**: Set default prices and configure per-route pricing
 - 🔗 **Wildcard Routes**: Support for wildcard paths (e.g., `/api/*`)
-- 🔐 **Authentication**: Support for API Key, Bearer Token, and Basic Auth
+- 🔐 **Authentication**: Support for API Key, Bearer Token, Basic Auth, and Custom Headers/Query Parameters
 - ⚡ **Developer Friendly**: Clear prompts, validation, and helpful defaults
+- 💼 **API Reselling**: Convert expensive monthly subscription APIs into pay-per-use services to generate profits
+- 🔄 **x402 Conversion**: Transform any existing API into an x402-capable API with cryptocurrency payments
+
+## Use Cases
+
+### 💼 API Reselling & Monetization
+
+Transform expensive monthly subscription APIs into profitable pay-per-use services:
+
+- **Resell Premium APIs**: Take APIs with high monthly subscription costs (e.g., $99-999/month) and offer them as pay-per-use services
+- **Generate Profits**: Set your own pricing per request, allowing you to mark up costs and generate revenue
+- **Lower Barrier to Entry**: Make expensive APIs accessible to users who only need occasional access
+- **Flexible Pricing**: Configure different prices for different endpoints based on their value
+
+**Example**: Resell a premium weather API that costs $299/month by charging $0.01 per request. Users who make fewer than 29,900 requests per month save money, while you generate profits from high-volume users.
+
+### 🔄 x402 API Conversion
+
+Convert any existing API to support x402 cryptocurrency payments:
+
+- **Add Payment Functionality**: Transform traditional APIs into x402-capable services without modifying the original API
+- **Cryptocurrency Payments**: Accept payments in various cryptocurrencies (Solana, Ethereum, Base, etc.)
+- **No Code Changes Required**: The proxy server handles all payment logic, leaving your original API unchanged
+- **Backward Compatible**: Your original API continues to work as before, while the proxy adds payment capabilities
+
+**Example**: Convert your existing REST API to accept x402 payments by proxying requests through the generated server. Users pay per request using cryptocurrency, and you receive payments automatically.
 
 ## Workflow
 
