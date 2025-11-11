@@ -11,6 +11,8 @@ import path from "path";
 import { generateProject } from "./generator.js";
 import { ProjectConfig, AuthConfig, RouteConfig } from "./types.js";
 
+// Supported blockchain networks
+// Note: solana-devnet is the default network
 const networks = ["solana-devnet", "base", "ethereum", "solana", "polygon", "arbitrum", "optimism"];
 
 /**
