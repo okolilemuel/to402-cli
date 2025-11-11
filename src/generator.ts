@@ -176,7 +176,7 @@ app.all("${routePath}", async (c) => {
   
   try {
     const timestamp = new Date().toISOString();
-    console.log(\`\n📥 [\${timestamp}] [\${requestId}] Incoming request\`);
+    console.log(\`\\n📥 [\${timestamp}] [\${requestId}] Incoming request\`);
     console.log(\`   Method: \${c.req.method}\`);
     console.log(\`   Path: \${c.req.path}\`);
     console.log(\`   URL: \${c.req.url}\`);
@@ -228,10 +228,10 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
       });
     } catch (fetchError) {
       const duration = Date.now() - startTime;
-      console.error(\`\n❌ [\${new Date().toISOString()}] [\${requestId}] Fetch error after \${duration}ms\`);
+      console.error(\`\\n❌ [\${new Date().toISOString()}] [\${requestId}] Fetch error after \${duration}ms\`);
       console.error(\`   Error: \${fetchError instanceof Error ? fetchError.message : String(fetchError)}\`);
       console.error(\`   Target URL: \${url.toString()}\`);
-      console.error(\`\n💡 Troubleshooting tips:\`);
+      console.error(\`\\n💡 Troubleshooting tips:\`);
       console.error(\`   - Verify the API base URL is correct: \${apiBaseUrl}\`);
       console.error(\`   - Check if the upstream API is accessible\`);
       console.error(\`   - Ensure network connectivity\`);
@@ -278,12 +278,12 @@ ${config.auth ? generateAuthCode(config.auth) : ""}
     });
   } catch (error) {
     const duration = Date.now() - startTime;
-    console.error(\`\n❌ [\${new Date().toISOString()}] [\${requestId}] Unexpected error after \${duration}ms\`);
+    console.error(\`\\n❌ [\${new Date().toISOString()}] [\${requestId}] Unexpected error after \${duration}ms\`);
     console.error(\`   Error: \${error instanceof Error ? error.message : String(error)}\`);
     if (error instanceof Error && error.stack) {
       console.error(\`   Stack trace: \${error.stack}\`);
     }
-    console.error(\`\n💡 Troubleshooting tips:\`);
+    console.error(\`\\n💡 Troubleshooting tips:\`);
     console.error(\`   - Check server logs for more details\`);
     console.error(\`   - Verify the request format is correct\`);
     console.error(\`   - Ensure all dependencies are properly installed\`);
@@ -316,13 +316,13 @@ console.log(\`💳 Facilitator URL: \${facilitatorUrl || "not set"}\`);
 console.log(\`💰 Payment Address: \${payTo || "not set"}\`);
 
 if (!facilitatorUrl || !payTo || !network) {
-  console.error("\n❌ Missing required environment variables");
+  console.error("\\n❌ Missing required environment variables");
   const missing: string[] = [];
   if (!facilitatorUrl) missing.push("FACILITATOR_URL");
   if (!payTo) missing.push("ADDRESS");
   if (!network) missing.push("NETWORK");
   console.error(\`   Missing: \${missing.join(", ")}\`);
-  console.error("\n💡 Troubleshooting tips:");
+  console.error("\\n💡 Troubleshooting tips:");
   console.error("   - Ensure all required environment variables are set in your .env file");
   console.error("   - Check that FACILITATOR_URL is a valid URL");
   console.error("   - Verify ADDRESS is a valid blockchain address (Ethereum or Solana)");
@@ -337,7 +337,7 @@ ${config.auth ? `console.log(\`✅ Authentication configured: ${config.auth.type
 const app = new Hono();
 
 const port = Number(process.env.PORT) || 4021;
-console.log(\`\n🚀 Starting server on port \${port}...\`);
+console.log(\`\\n🚀 Starting server on port \${port}...\`);
 console.log(\`📡 Proxying requests to: \${apiBaseUrl}\`);
 
 // Configure payment middleware - this enforces payment requirements
@@ -362,11 +362,11 @@ ${proxyRoutes}
 
 // Catch-all route for unmatched paths - returns 404
 app.all("*", (c) => {
-  console.warn(\`\n⚠️  [\${new Date().toISOString()}] 404 Not Found\`);
+  console.warn(\`\\n⚠️  [\${new Date().toISOString()}] 404 Not Found\`);
   console.warn(\`   Method: \${c.req.method}\`);
   console.warn(\`   Path: \${c.req.path}\`);
   console.warn(\`   URL: \${c.req.url}\`);
-  console.warn(\`\n💡 This path is not configured in the proxy server.\`);
+  console.warn(\`\\n💡 This path is not configured in the proxy server.\`);
   console.warn(\`   Configured routes: ${config.routes.map(r => r.path).join(", ")}\`);
   return c.json({ 
     error: "Not Found",
@@ -379,20 +379,20 @@ const server = serve({
   fetch: app.fetch,
   port,
 }, (info) => {
-  console.log(\`\n✅ Server is running!\`);
+  console.log(\`\\n✅ Server is running!\`);
   console.log(\`   Port: \${info.port}\`);
   console.log(\`   Address: http://localhost:\${info.port}\`);
   console.log(\`   Network: \${network}\`);
   console.log(\`   Facilitator: \${facilitatorUrl}\`);
   console.log(\`   Payment Address: \${payTo}\`);
-  console.log(\`\n📋 Configured routes:\`);
+  console.log(\`\\n📋 Configured routes:\`);
   ${config.routes.map(route => `  console.log(\`   - \${"${route.path}"} (Price: \${"${route.price}"})\`);`).join("\n")}
-  console.log(\`\n🚀 Ready to accept requests!\n\`);
+  console.log(\`\\n🚀 Ready to accept requests!\\n\`);
 });
 
 // Fallback log in case callback doesn't fire immediately
 setTimeout(() => {
-  console.log(\`\n✅ Server is running on port \${port}\`);
+  console.log(\`\\n✅ Server is running on port \${port}\`);
   console.log(\`   Address: http://localhost:\${port}\`);
 }, 100);
 `;
