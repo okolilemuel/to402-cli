@@ -2,6 +2,14 @@
 
 A developer-friendly CLI tool to scaffold an x402 proxy server. Easily turn any API into an x402 API with payment functionality.
 
+## 📹 Video Tutorial
+
+Watch a quick demo of the to402 CLI in action:
+
+[![Watch the video](https://cdn.loom.com/sessions/thumbnails/6cba3ed98ac34cb19255fb32fc2b235e-with-play.gif)](https://www.loom.com/share/6cba3ed98ac34cb19255fb32fc2b235e)
+
+Or view directly: [Loom Video](https://www.loom.com/share/6cba3ed98ac34cb19255fb32fc2b235e)
+
 ## Installation
 
 ```bash
